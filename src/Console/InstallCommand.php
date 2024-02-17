@@ -4,20 +4,19 @@ namespace Eky\Tes1\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Console\PromptsForMissingInput;
+use Symfony\Component\Process\Process;
+
 
 class InstallCommand extends Command implements PromptsForMissingInput
 {
+    use InstallBladeStack;
     /**
      * The name and signature of the console command.
      *
      * @var string
      */
-    protected $signature = 'eky:install {stack : The development stack that should be installed (blade,livewire,livewire-functional,react,vue,api)}
-                            {--dark : Indicate that dark mode support should be installed}
-                            {--pest : Indicate that Pest should be installed}
-                            {--ssr : Indicates if Inertia SSR support should be installed}
-                            {--typescript : Indicates if TypeScript is preferred for the Inertia stack (Experimental)}
-                            {--composer=global : Absolute path to the Composer binary which should be used to install packages}';
+    protected $signature = 'eky:install 
+                            {stack : The development stack that should be installed (blade)}';
 
     /**
      * The console command description.
@@ -33,16 +32,64 @@ class InstallCommand extends Command implements PromptsForMissingInput
      */
     public function handle()
     {
-        if ($this->argument('stack') === 'vue') {
-            $this->components->info('Installing Vue stack...');
-        } elseif ($this->argument('stack') === 'react') {
-            $this->components->info('Installing React stack...');
-        } elseif ($this->argument('stack') === 'blade') {
-            $this->components->info('Installing Blade stack...');
-        } 
-
-        $this->components->error('Invalid stack. Supported stacks are [blade], [livewire], [livewire-functional], [react], [vue], and [api].');
-
+        if ($this->argument('stack') === 'blade') {
+            $this->installBladeStack();
+        } else {
+            $this->components->error('Invalid stack. Supported stacks are [blade]');
+        }
         return 1;
+    }
+
+    /**
+     * Update the "package.json" file.
+     *
+     * @param  callable  $callback
+     * @param  bool  $dev
+     * @return void
+     */
+    protected static function updateNodePackages(callable $callback, $dev = true)
+    {
+        if (! file_exists(self::base_path('package.json'))) {
+            return;
+        }
+
+        $configurationKey = $dev ? 'devDependencies' : 'dependencies';
+
+        $packages = json_decode(file_get_contents(base_path('package.json')), true);
+
+        $packages[$configurationKey] = $callback(
+            array_key_exists($configurationKey, $packages) ? $packages[$configurationKey] : [],
+            $configurationKey
+        );
+
+        ksort($packages[$configurationKey]);
+
+        file_put_contents(
+            base_path('package.json'),
+            json_encode($packages, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT).PHP_EOL
+        );
+    }
+
+    /**
+     * Run the given commands.
+     *
+     * @param  array  $commands
+     * @return void
+     */
+    protected function runCommands($commands)
+    {
+        $process = Process::fromShellCommandline(implode(' && ', $commands), null, null, null, null);
+
+        if ('\\' !== DIRECTORY_SEPARATOR && file_exists('/dev/tty') && is_readable('/dev/tty')) {
+            try {
+                $process->setTty(true);
+            } catch (\RuntimeException $e) {
+                $this->output->writeln('  <bg=yellow;fg=black> WARN </> '.$e->getMessage().PHP_EOL);
+            }
+        }
+
+        $process->run(function ($type, $line) {
+            $this->output->write('    '.$line);
+        });
     }
 }
